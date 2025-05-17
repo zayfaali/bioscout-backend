@@ -16,27 +16,34 @@ const populateUser = {
   model: User,
 };
 
-// controllers/datasetExport.js
 export const syncDataset = async () => {
   let filePath;
   try {
-    const observations = await Observation.find({}).populate(populateUser);
+    const observations = await Observation.find({})
+      .populate(populateUser)
+      .lean();
+
     const textData = observations
       .map((obs) => {
-        return `
-Observation ID: ${obs._id}
-Title: ${obs.title || "N/A"}
-Description: ${obs.description || "N/A"}
-Species: ${obs.species || "N/A"}
-Location: ${obs.location || "N/A"}
-Date: ${obs.observationDate || "N/A"}
-Weather: ${obs.weatherConditions || "N/A"}
-Habitat: ${obs.habitatType || "N/A"}
-Notes: ${obs.additionalNotes || "N/A"}
-----------------------------------------\n
-`;
+        return [
+          `Observation ID: ${obs._id}`,
+          `User: ${obs.user?.username || "Anonymous"} (${
+            obs.user?._id || "no-id"
+          })`,
+          `Species: ${obs.species}`,
+          `Category: ${obs.category}`,
+          `Animal Group: ${obs.animalGroup}`,
+          `Location: ${obs.location}`,
+          `Confidence: ${obs.confidence}%`,
+          `Notes: ${obs.notes || "No additional notes"}`,
+          `Image URL: ${obs.image?.url || "No image"}`,
+          `Public ID: ${obs.image?.public_id || "N/A"}`,
+          `Created At: ${new Date(obs.createdAt).toISOString()}`,
+          `Updated At: ${new Date(obs.updatedAt).toISOString()}`,
+          "----------------------------------------",
+        ].join("\n");
       })
-      .join("\n");
+      .join("\n\n");
 
     // Create temporary file
     filePath = path.join(
@@ -44,15 +51,15 @@ Notes: ${obs.additionalNotes || "N/A"}
       "../temp",
       `observations-${Date.now()}.txt`
     );
-    fs.writeFileSync(filePath, textData);
-    console.log(`File created at: ${filePath}`);
 
-    // Validate file existence
-    if (!fs.existsSync(filePath)) {
-      throw new Error("File creation failed");
+    // Ensure temp directory exists
+    if (!fs.existsSync(path.dirname(filePath))) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
     }
 
-    // Create form data with proper file attachment
+    fs.writeFileSync(filePath, textData);
+
+    // Rest of the API call logic remains the same
     const form = new FormData();
     form.append("dataframe", "deba045d-ede9-47b7-b6b6-33f2b87580ba");
     form.append("file", fs.createReadStream(filePath), {
@@ -60,8 +67,6 @@ Notes: ${obs.additionalNotes || "N/A"}
       contentType: "text/plain",
     });
 
-    // Send request with verbose logging
-    console.log("Sending request to Vext API...");
     const response = await axios.post(
       "https://api.vextapp.com/openapi/v2/data-source",
       form,
@@ -75,19 +80,13 @@ Notes: ${obs.additionalNotes || "N/A"}
       }
     );
 
-    console.log("API response:", response.data);
     return true;
   } catch (error) {
-    console.error(
-      "API submission failed:",
-      error.response?.data || error.message
-    );
+    console.error("Dataset sync error:", error);
     return false;
   } finally {
-    // Cleanup file only after API call completes
     if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log(`Temporary file cleaned: ${filePath}`);
     }
   }
 };
